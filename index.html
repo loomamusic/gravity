@@ -1,0 +1,209 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <style>
+            html, body {
+                width: 100%;
+                height: 100vh;
+                padding: 0;
+                margin: 0;
+                overflow: hidden;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="mainCanvas"></canvas>
+        <script>
+
+            //Write trails to array
+            //Center sim based on bounds + max distance between two objects.
+            //Maybe lerp the moevement.
+            //scale coef + x & y offset
+
+            const canvas = document.getElementById('mainCanvas');
+            const ctx = canvas.getContext('2d');
+
+            const numBodies = 5;
+            const gravity = 2;
+            const placementRadius = 500;
+            const radius = 70;
+            const density = 30;
+            const bounds = 50;
+            const boundStrength = 0.005;
+            const framerate = 200;
+
+            const iterations = 1;
+
+            const tailLength = 500;
+
+            let scale = 1;
+            let camX = canvas.width;
+            let camY = canvas.height;
+
+            let bodies = [];
+
+            class Circle {
+                constructor(x,y,size,brightness) {
+                    this.x = x;
+                    this.y = y;
+                    this.size = size;
+                    this.brightness = brightness;
+                }
+
+                draw() {
+                    //console.log(this.brightness);
+                    ctx.fillStyle = `rgb(${this.brightness},${this.brightness},${this.brightness})`;
+                    ctx.beginPath();
+                    ctx.arc(canvas.width/2 + (this.x - camX) * scale,
+                        canvas.height/2 + (this.y - camY) * scale,
+                        Math.abs(this.size) * scale, 0, 2 * Math.PI);
+                    ctx.fill();  
+                }
+            }
+            class Body {
+                constructor(x,y,xV,yV,mass,weight,tail) {
+                    this.x = x;
+                    this.y = y;
+                    this.xV = xV;
+                    this.yV = yV;
+                    this.mass = mass;
+                    this.weight = weight;
+                    this.tail = [];
+                }
+
+                static random() {
+                    let thisX = Math.random() * canvas.width;
+                    let thisY = Math.random() * canvas.height;
+                    let thisXV = Math.random() - 0.5;
+                    let thisYV = Math.random() - 0.5;
+                    let thisMass = Math.random() * radius;
+                    let thisDensity = Math.random() * density;
+                    let thisTail = [];
+                    return new Body(thisX,thisY,thisXV,thisYV,thisMass,thisDensity);
+                }
+
+                setPos(x, y) {
+                    this.x = x;
+                    this.y = y;
+                }
+
+                draw() {
+                    let tailSub = Math.abs(this.mass)/tailLength;
+                    let brightnessSub = (Math.abs(this.weight)/density * 255) /tailLength;
+                    //console.log(brightnessSub);
+                    for (let i = 0; i < this.tail.length; i++) {
+                        let tailSize = i / tailLength;
+                        this.tail[i].draw();
+                        this.tail[i].size -= tailSub;
+                        this.tail[i].brightness -= brightnessSub/2;
+                    }
+                }
+            }
+
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+
+            function populate() {
+                let spacing = (2 * Math.PI) / numBodies
+                for (let i = 0; i < numBodies; i++) {
+                    let newBody = Body.random();
+                    let x = (Math.sin(spacing * i) * placementRadius) + (canvas.width / 2);
+                    let y = (Math.cos(spacing * i) * placementRadius) + (canvas.height / 2);
+                    newBody.setPos(x,y);
+                    bodies.push(newBody);
+                }
+                let blackHole = new Body(canvas.width/2, canvas.height/2, 0, 0, radius * -0.5, density * -0.5, []);
+                bodies.push(blackHole);
+            }
+
+            function drawBodies() {
+                for (let i = 0; i < bodies.length; i++) {
+                    bodies[i].draw();
+                }
+            }
+
+            function step(dt) {
+                let minX = bodies[0].x, maxX = minX;
+                let minY = bodies[0].y, maxY = minY;
+                for (let i = 0; i < bodies.length; i++) {
+                    if (bodies[i].x < minX) { minX = bodies[i].x; }
+                    if (bodies[i].x > maxX) { maxX = bodies[i].x; }
+                    if (bodies[i].y < minY) { minY = bodies[i].y; }
+                    if (bodies[i].y > maxY) { maxY = bodies[i].y; }
+
+                    if (bodies[i].x < bounds)                 { bodies[i].xV += boundStrength * dt; }
+                    if (bodies[i].x > canvas.width - bounds)  { bodies[i].xV -= boundStrength * dt; }
+                    if (bodies[i].y < bounds)                 { bodies[i].yV += boundStrength * dt; }
+                    if (bodies[i].y > canvas.height - bounds) { bodies[i].yV -= boundStrength * dt; }
+
+                    for (let j = 0; j < bodies.length; j++) {
+                        if (i === j) { continue; } 
+                        let xD = bodies[j].x - bodies[i].x;
+                        let yD = bodies[j].y - bodies[i].y;
+                        let r = Math.sqrt((xD * xD) + (yD * yD) + (bodies[i].weight * bodies[i].weight));
+                        let mag = (gravity * bodies[j].mass) / (r * r);
+                        bodies[i].xV += (mag * (xD/r)) * dt;
+                        bodies[i].yV += (mag * (yD/r)) * dt;
+                        //console.log(bodies[i].xV);
+                        //console.log(bodies[i].yV);            
+                    }
+
+                }
+
+                let lerp = 0.005;
+                let margin = bounds * 5;
+                camX += ((minX + maxX)/2 - camX) * lerp;
+                camY += ((minY + maxY)/2 - camY) * lerp;
+
+                let halfX = Math.max(camX - minX, maxX - camX) + radius;
+                let halfY = Math.max(camY - minY, maxY - camY) + radius;
+                let target = Math.min((canvas.width/2 - margin) / halfX,
+                                    (canvas.height/2 - margin) / halfY);
+                scale += (target - scale) * lerp;
+
+                for (let i = 0; i < bodies.length; i++) {
+  
+                    bodies[i].x += (bodies[i].xV) * dt;
+                    bodies[i].y += (bodies[i].yV) * dt;
+                    let circ = new Circle(bodies[i].x, bodies[i].y, bodies[i].mass, Math.abs(bodies[i].weight)/density * 255);
+                    bodies[i].tail.push(circ);
+                    while (bodies[i].tail.length > tailLength) { 
+                        bodies[i].tail.shift();
+                    }
+                }
+                
+            }
+
+            resize();
+            addEventListener('resize', resize);
+
+            populate();
+
+
+
+            const FIXED = 1/iterations;      // sim step size, in 60fps-frame units
+            let last = null;
+            let acc = 0;
+
+
+            function loop(now) {
+                ctx.fillStyle = 'rgb(0,0,0)';
+                ctx.fillRect(0,0,canvas.width,canvas.height);
+                if (last === null) last = now;
+                acc += Math.min((now - last) / (1000 / framerate), 5);
+                last = now;
+                while (acc >= 1) {
+                    step(FIXED);
+                    drawBodies();
+                    acc -= FIXED;
+                }
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        </script>
+        
+    </body>
+</html>
